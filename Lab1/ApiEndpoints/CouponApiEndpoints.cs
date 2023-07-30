@@ -23,11 +23,7 @@ public static class CouponApiEndpoints
             .WithName("GetCoupon");
 
         group.MapPost("/", CreateCoupon)
-            .WithName("CreateCoupon")
-            .Accepts<CouponCreateDto>("application/json")
-            .Produces<ApiResponse<CouponVm>>(201)
-            .Produces<ApiResponse>(400);
-
+            .WithName("CreateCoupon");
 
         group.MapPut("/{id:int}", UpdateCoupon())
             .WithName("UpdateCoupon");
@@ -116,8 +112,7 @@ public static class CouponApiEndpoints
         });
     }
 
-    // TODO: replace IResult with Results<TOk, TError>
-    private static async Task<IResult> CreateCoupon(
+    private static async Task<Results<BadRequest<ApiResponse>, CreatedAtRoute<ApiResponse<CouponVm>>>> CreateCoupon(
         CouponStoreDbContext dbContext,
         IMapper mapper,
         IValidator<CouponCreateDto> validator,
@@ -145,11 +140,11 @@ public static class CouponApiEndpoints
         await dbContext.Coupons.AddAsync(coupon);
         await dbContext.SaveChangesAsync();
 
-        return TypedResults.CreatedAtRoute(new { id = coupon.Id }, "GetCoupon", new ApiResponse<CouponVm>
+        return TypedResults.CreatedAtRoute(new ApiResponse<CouponVm>
         {
             IsSuccess = true,
             StatusCode = HttpStatusCode.Created,
             Data = mapper.Map<CouponVm>(coupon)
-        });
+        }, "GetCoupon", new { id = coupon.Id });
     }
 }
