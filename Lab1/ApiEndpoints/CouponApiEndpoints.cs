@@ -8,6 +8,7 @@ using Lab1.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
+using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Lab1.ApiEndpoints;
 
@@ -15,16 +16,13 @@ public static class CouponApiEndpoints
 {
     public static RouteGroupBuilder MapCouponsApi(this RouteGroupBuilder group)
     {
-        group.MapGet("/", GetAllCoupons())
-            .WithName("GetCoupons")
-            .Produces<ApiResponse<IReadOnlyCollection<CouponVm>>>();
+        group.MapGet("/", GetAllCoupons)
+            .WithName("GetCoupons");
 
-        group.MapGet("/{id:int}", GetCouponById())
-            .WithName("GetCoupon")
-            .Produces<ApiResponse<CouponVm>>()
-            .Produces<ApiResponse>(404);
+        group.MapGet("/{id:int}", GetCouponById)
+            .WithName("GetCoupon");
 
-        group.MapPost("/", CreateCoupon())
+        group.MapPost("/", CreateCoupon)
             .WithName("CreateCoupon")
             .Accepts<CouponCreateDto>("application/json")
             .Produces<ApiResponse<CouponVm>>(201)
@@ -87,78 +85,71 @@ public static class CouponApiEndpoints
         };
     }
 
-    private static Func<CouponStoreDbContext, IMapper, IValidator<CouponCreateDto>, CouponCreateDto, Task<IResult>>
-        CreateCoupon()
+    private static async Task<Ok<ApiResponse<IReadOnlyCollection<CouponVm>>>> GetAllCoupons(
+        CouponStoreDbContext dbContext, IMapper mapper)
     {
-        return async (dbContext, mapper, validator,
-            [FromBody] cuoCreateDto) =>
+        var coupons = await dbContext.Coupons.ToListAsync();
+        return TypedResults.Ok(new ApiResponse<IReadOnlyCollection<CouponVm>>
         {
-            var validationResult = await validator.ValidateAsync(cuoCreateDto);
-            if (!validationResult.IsValid)
-                return Results.BadRequest(new ApiResponse
-                {
-                    IsSuccess = false,
-                    StatusCode = HttpStatusCode.BadRequest,
-                    Errors = validationResult.Errors.Select(e => e.ErrorMessage).ToList()
-                });
-
-
-            if (await dbContext.Coupons.AnyAsync(c => c.Code == cuoCreateDto.Code))
-                return Results.BadRequest(new ApiResponse
-                {
-                    IsSuccess = false,
-                    StatusCode = HttpStatusCode.BadRequest,
-                    Errors = new List<string> { "Coupon code already exists" }
-                });
-
-            var coupon = mapper.Map<Coupon>(cuoCreateDto);
-            await dbContext.Coupons.AddAsync(coupon);
-            await dbContext.SaveChangesAsync();
-
-            return Results.CreatedAtRoute("GetCoupon", new { id = coupon.Id }, new ApiResponse<CouponVm>
-            {
-                IsSuccess = true,
-                StatusCode = HttpStatusCode.Created,
-                Data = mapper.Map<CouponVm>(coupon)
-            });
-        };
+            IsSuccess = true,
+            StatusCode = HttpStatusCode.OK,
+            Data = mapper.Map<IReadOnlyCollection<CouponVm>>(coupons)
+        });
     }
 
-    private static Func<CouponStoreDbContext, IMapper, int, Task<IResult>> GetCouponById()
+    private static async Task<Results<Ok<ApiResponse<CouponVm>>, NotFound<ApiResponse>>> GetCouponById(
+        CouponStoreDbContext dbContext, IMapper mapper, [FromRoute] int id)
     {
-        return async (dbContext, mapper,
-            [FromRoute] id) =>
-        {
-            var coupon = await dbContext.Coupons.FindAsync(id);
-            if (coupon is null)
-                return Results.NotFound(new ApiResponse
-                {
-                    IsSuccess = false,
-                    StatusCode = HttpStatusCode.NotFound,
-                });
-
-
-            return Results.Ok(new ApiResponse<CouponVm>
+        var coupon = await dbContext.Coupons.FindAsync(id);
+        if (coupon is null)
+            return TypedResults.NotFound(new ApiResponse
             {
-                IsSuccess = true,
-                StatusCode = HttpStatusCode.OK,
-                Data = mapper.Map<CouponVm>(coupon)
+                IsSuccess = false,
+                StatusCode = HttpStatusCode.NotFound,
             });
-        };
+
+        return TypedResults.Ok(new ApiResponse<CouponVm>
+        {
+            IsSuccess = true,
+            StatusCode = HttpStatusCode.OK,
+            Data = mapper.Map<CouponVm>(coupon)
+        });
     }
 
-    private static Func<CouponStoreDbContext, IMapper, Task<IResult>> GetAllCoupons()
+    // TODO: replace IResult with Results<TOk, TError>
+    private static async Task<IResult> CreateCoupon(
+        CouponStoreDbContext dbContext,
+        IMapper mapper,
+        IValidator<CouponCreateDto> validator,
+        [FromBody] CouponCreateDto couponCreateDto)
     {
-        return async (dbContext, mapper) =>
-        {
-            var coupons = await dbContext.Coupons.ToListAsync();
-            var apiResponse = new ApiResponse<IReadOnlyCollection<CouponVm>>
+        var validationResult = await validator.ValidateAsync(couponCreateDto);
+        if (!validationResult.IsValid)
+            return TypedResults.BadRequest(new ApiResponse
             {
-                IsSuccess = true,
-                StatusCode = HttpStatusCode.OK,
-                Data = coupons.Select(mapper.Map<CouponVm>).ToList()
-            };
-            return Results.Ok(apiResponse);
-        };
+                IsSuccess = false,
+                StatusCode = HttpStatusCode.BadRequest,
+                Errors = validationResult.Errors.Select(e => e.ErrorMessage).ToList()
+            });
+
+
+        if (await dbContext.Coupons.AnyAsync(c => c.Code == couponCreateDto.Code))
+            return TypedResults.BadRequest(new ApiResponse
+            {
+                IsSuccess = false,
+                StatusCode = HttpStatusCode.BadRequest,
+                Errors = new List<string> { "Coupon code already exists" }
+            });
+
+        var coupon = mapper.Map<Coupon>(couponCreateDto);
+        await dbContext.Coupons.AddAsync(coupon);
+        await dbContext.SaveChangesAsync();
+
+        return TypedResults.CreatedAtRoute(new { id = coupon.Id }, "GetCoupon", new ApiResponse<CouponVm>
+        {
+            IsSuccess = true,
+            StatusCode = HttpStatusCode.Created,
+            Data = mapper.Map<CouponVm>(coupon)
+        });
     }
 }
